@@ -10,10 +10,15 @@ Thumbs.db
 
 # Node
 node_modules/
+.next/
+out/
 dist/
 build/
 *.log
 .env
+.env*.local
+*.tsbuildinfo
+next-env.d.ts
 
 # Python
 __pycache__/

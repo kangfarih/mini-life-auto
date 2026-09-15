@@ -1,0 +1,116 @@
+name: self-build
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+  issues:
+    types: [opened, labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: self-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check rate-limit state
+        id: gate
+        run: |
+          NOW=$(date +%s)
+          NEXT=$(node -e "try{console.log(require('./.opencode/ratelimit.json').next_allowed_at||0)}catch{console.log(0)}")
+          echo "now=$NOW next=$NEXT"
+          if [ "$NEXT" -gt "$NOW" ]; then
+            WAIT=$((NEXT - NOW))
+            echo "Rate limited, retry in ${WAIT}s. Exiting."
+            exit 0
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Verify build stays green
+        run: npm run build
+
+      - name: Pick oldest auto:todo issue
+        id: issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NUM=$(gh issue list --label auto:todo --state open --limit 1 --json number --jq '.[0].number // empty')
+          echo "number=$NUM" >> "$GITHUB_OUTPUT"
+          echo "Picked issue: $NUM"
+
+      - name: Install opencode
+        if: steps.issue.outputs.number != ''
+        run: curl -fsSL https://opencode.ai/install | bash
+
+      - name: Run opencode on issue
+        if: steps.issue.outputs.number != ''
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.opencode/bin:$PATH"
+          BODY=$(gh issue view "${{ steps.issue.outputs.number }}" --json title,body --jq '"\(.title)\n\n\(.body)"')
+          set +e
+          opencode run --auto \
+            -m opencode/muse-spark-1.3-contributor-free \
+            "Implement GitHub issue #${{ steps.issue.outputs.number }}:\n$BODY\n\nFollow STACK.md, SPEC.md, AGENTS.md. Small PR-scoped change, keep npm run build green." 2>&1 | tee /tmp/opencode.log
+          CODE=${PIPESTATUS[0]}
+          set -e
+          if grep -qiE "rate.?limit|429|FreeUsageLimit|free.*(exceed|quota)|retry after" /tmp/opencode.log; then
+            SECS=$(grep -oiE "retry after [0-9]+" /tmp/opencode.log | grep -oiE "[0-9]+" | head -1)
+            if [ -z "$SECS" ]; then SECS=900; fi
+            # countdown for short waits so logs show it
+            REMAIN=$SECS
+            if [ "$REMAIN" -lt 900 ]; then
+              while [ "$REMAIN" -gt 0 ]; do echo "opencode rate limited, retry in ${REMAIN}s..."; STEP=10; [ "$REMAIN" -lt 10 ] && STEP=$REMAIN; sleep $STEP; REMAIN=$((REMAIN - STEP)); done
+            fi
+            NOW=$(date +%s)
+            NEXT=$((NOW + SECS + 60))
+            printf '{"next_allowed_at":%s,"last_error":"rate-limited"}' "$NEXT" > .opencode/ratelimit.json
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add .opencode/ratelimit.json
+            git commit -m "[skip ci] rate limited, resume after $SECS s" || true
+            git push || true
+            exit 0
+          fi
+          exit $CODE
+
+      - name: Open PR with changes
+        if: steps.issue.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then echo "No changes."; exit 0; fi
+          BR="auto/issue-${{ steps.issue.outputs.number }}-$(date +%s)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BR"
+          git add -A
+          git commit -m "auto: issue #${{ steps.issue.outputs.number }}"
+          git push -u origin "$BR"
+          gh pr create --fill --label auto:done --title "auto: issue #${{ steps.issue.outputs.number }}" --body "Closes #${{ steps.issue.outputs.number }}"
+          gh issue comment "${{ steps.issue.outputs.number }}" --body "/oc done — opened PR for #${{ steps.issue.outputs.number }}"
