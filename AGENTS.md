@@ -34,6 +34,8 @@ Read `STACK.md` and `SPEC.md` first. They are authoritative.
   Runs only when the issue carries the `design` label; writes no code logic.
 - `brainstorm` — game-systems designer + software analyst. Runs only when the `auto:todo`
   backlog is empty; files 1–3 designed, acceptance-criteried `auto:todo` issues, writes no code.
+- `reviewer` — reviews the working tree (SPEC, registry, build), writes `/tmp/verdict.txt`.
+  Loop: coder ⇄ reviewer, max 2 rounds, publish always; reviewer crashes fail open.
 
 ## Rate-limit behavior
 

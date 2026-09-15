@@ -30,3 +30,4 @@ How to work:
    a red build blocks the whole loop.
 6. Leave changes UNCOMMITTED in the working tree. The workflow opens the PR.
    Summarize at the end: chunks added (coords), files touched, migration notes.
+If `/tmp/review.md` exists and is non-empty, a previous review round left findings: address every finding first, then continue the task. Do not delete the file.
