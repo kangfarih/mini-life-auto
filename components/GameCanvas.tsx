@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import * as PIXI from "pixi.js";
 
 const BIOME_COLORS: Record<string, number> = {
@@ -17,68 +17,100 @@ type Chunk = {
   biome: string;
 };
 
-export default function GameCanvas() {
+export type ViewerStats = {
+  status: string;
+  chunkCount: number;
+  updatedAt: string;
+};
+
+const TILE = 28;
+const GAP = 6;
+
+export default function GameCanvas({
+  autoRefresh,
+  refreshToken,
+  onStats
+}: {
+  autoRefresh: boolean;
+  refreshToken: number;
+  onStats?: (s: ViewerStats) => void;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const [status, setStatus] = useState("starting…");
-  const [chunkCount, setChunkCount] = useState(0);
+  const cacheRef = useRef<Chunk[]>([]);
+  const onStatsRef = useRef(onStats);
+  onStatsRef.current = onStats;
 
   useEffect(() => {
-    let destroyed = false;
+    let alive = true;
     let app: PIXI.Application | null = null;
     let timer: ReturnType<typeof setInterval> | null = null;
+
+    function draw() {
+      if (!app || !alive) return;
+      const chunks = cacheRef.current;
+      app.stage.removeChildren();
+      const cols = Math.max(1, Math.floor((app.screen.width + GAP) / (TILE + GAP)));
+      chunks.forEach((c, i) => {
+        const g = new PIXI.Graphics();
+        g.rect((i % cols) * (TILE + GAP), Math.floor(i / cols) * (TILE + GAP), TILE, TILE);
+        g.fill({ color: BIOME_COLORS[c.biome] ?? 0x444444 });
+        app!.stage.addChild(g);
+      });
+    }
+
+    function report(status: string) {
+      onStatsRef.current?.({
+        status,
+        chunkCount: cacheRef.current.length,
+        updatedAt: new Date().toLocaleTimeString()
+      });
+    }
 
     async function load() {
       try {
         const res = await fetch("/api/chunks?world=main", { cache: "no-store" });
         const json = (await res.json()) as { chunks: Chunk[] };
-        if (destroyed) return;
-        setChunkCount(json.chunks.length);
-        setStatus(json.chunks.length === 0 ? "empty world — run db:seed" : "live");
-        if (!app) return;
-        app.stage.removeChildren();
-        const size = 28;
-        json.chunks.forEach((c, i) => {
-          const g = new PIXI.Graphics();
-          g.rect((i % 8) * (size + 6), Math.floor(i / 8) * (size + 6), size, size);
-          g.fill({ color: BIOME_COLORS[c.biome] ?? 0x444444 });
-          app!.stage.addChild(g);
-        });
+        if (!alive) return;
+        cacheRef.current = json.chunks;
+        draw();
+        report(json.chunks.length === 0 ? "empty world — run db:seed" : "live");
       } catch {
-        if (!destroyed) setStatus("api unreachable");
+        if (alive) report("api unreachable");
       }
+    }
+
+    function onResize() {
+      draw();
     }
 
     async function init() {
       if (!hostRef.current) return;
       app = new PIXI.Application();
-      await app.init({ width: 640, height: 360, background: 0x0b0f14 });
-      if (destroyed) {
+      await app.init({ resizeTo: hostRef.current, background: 0x0b0f14 });
+      if (!alive) {
         app.destroy(true);
         return;
       }
+      app.canvas.style.display = "block";
       hostRef.current.appendChild(app.canvas);
+      report("loading…");
       await load();
-      timer = setInterval(load, 4000);
+      if (autoRefresh) timer = setInterval(load, 4000);
+      window.addEventListener("resize", onResize);
     }
 
     init().catch(() => {
-      if (!destroyed) setStatus("pixi failed to start");
+      if (alive) report("pixi failed to start");
     });
 
     return () => {
-      destroyed = true;
+      alive = false;
+      window.removeEventListener("resize", onResize);
       if (timer) clearInterval(timer);
       app?.destroy(true);
       app = null;
     };
-  }, []);
+  }, [autoRefresh, refreshToken]);
 
-  return (
-    <div>
-      <p>
-        status: <code>{status}</code> · chunks: <code>{chunkCount}</code>
-      </p>
-      <div ref={hostRef} style={{ border: "1px solid #26303b", borderRadius: 12, overflow: "hidden" }} />
-    </div>
-  );
+  return <div ref={hostRef} style={{ flex: 1, minHeight: 0, minWidth: 0 }} />;
 }
