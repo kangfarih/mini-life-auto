@@ -77,7 +77,7 @@ export default function PixelWarrior({
     return () => clearInterval(id);
   }, [fps]);
 
-  const palette = { ...BASE_PALETTE, T: tunic };
+  const palette: Record<string, string> = { ...BASE_PALETTE, T: tunic };
   const rows = [...BODY, ...LEGS[frame], EMPTY, EMPTY];
 
   return (
