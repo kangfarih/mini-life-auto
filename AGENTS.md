@@ -28,7 +28,9 @@ Read `STACK.md` and `SPEC.md` first. They are authoritative.
 
 ## Roles (`.opencode/agents/`)
 
-- `build` (default) — implements `auto:todo` issues, keeps `npm run build` green.
+- `coder` — implements `auto:todo` issues, keeps `npm run build` green.
+- `designer` — game art (tileset registry, palettes, sprites in `public/tiles/`).
+  Runs only when the issue carries the `design` label; writes no code logic.
 - `brainstorm` — idea-giver for the next loop. Runs only when the `auto:todo`
   backlog is empty; files 1–3 concrete `auto:todo` issues, writes no code.
 

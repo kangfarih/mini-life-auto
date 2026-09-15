@@ -65,7 +65,30 @@ jobs:
         if: steps.issue.outputs.number != ''
         run: curl -fsSL https://opencode.ai/install | bash
 
-      - name: Run opencode on issue
+      - name: Check design label
+        id: design
+        if: steps.issue.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          HAS=$(gh issue view "${{ steps.issue.outputs.number }}" --json labels --jq '[.labels[].name] | contains(["design"])')
+          echo "needed=$HAS" >> "$GITHUB_OUTPUT"
+          echo "Design needed: $HAS"
+
+      - name: Run designer on issue
+        if: steps.design.outputs.needed == 'true'
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.opencode/bin:$PATH"
+          BODY=$(gh issue view "${{ steps.issue.outputs.number }}" --json title,body --jq '"\(.title)\n\n\(.body)"')
+          opencode run --auto --agent designer \
+            -m opencode/muse-spark-1.3-contributor-free \
+            "Design art for GitHub issue #${{ steps.issue.outputs.number }}:\n$BODY\n\nFollow STACK.md, SPEC.md, AGENTS.md and the art contract in .opencode/agents/designer.md. Best effort; leave changes uncommitted." 2>&1 | tee /tmp/designer.log || true
+
+      - name: Run coder on issue
         if: steps.issue.outputs.number != ''
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
@@ -76,7 +99,7 @@ jobs:
           export PATH="$HOME/.opencode/bin:$PATH"
           BODY=$(gh issue view "${{ steps.issue.outputs.number }}" --json title,body --jq '"\(.title)\n\n\(.body)"')
           set +e
-          opencode run --auto \
+          opencode run --auto --agent coder \
             -m opencode/muse-spark-1.3-contributor-free \
             "Implement GitHub issue #${{ steps.issue.outputs.number }}:\n$BODY\n\nFollow STACK.md, SPEC.md, AGENTS.md. Small PR-scoped change, keep npm run build green." 2>&1 | tee /tmp/opencode.log
           CODE=${PIPESTATUS[0]}

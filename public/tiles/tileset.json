@@ -1,0 +1,12 @@
+{
+  "tiles": [
+    { "id": 0, "name": "grass", "biome": "plains", "color": "#3f7d3a" },
+    { "id": 1, "name": "dense-grass", "biome": "plains", "color": "#356e32" },
+    { "id": 2, "name": "pine-floor", "biome": "forest", "color": "#2a5d34" },
+    { "id": 3, "name": "canopy", "biome": "forest", "color": "#1f4a29" },
+    { "id": 4, "name": "shallow-water", "biome": "water", "color": "#2b5f8a" },
+    { "id": 5, "name": "deep-water", "biome": "water", "color": "#1e4566" },
+    { "id": 6, "name": "dirt-path", "biome": "village", "color": "#8a7648" },
+    { "id": 7, "name": "planks", "biome": "village", "color": "#6e5d39" }
+  ]
+}
