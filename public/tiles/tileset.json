@@ -7,6 +7,8 @@
     { "id": 4, "name": "shallow-water", "biome": "water", "color": "#2b5f8a" },
     { "id": 5, "name": "deep-water", "biome": "water", "color": "#1e4566" },
     { "id": 6, "name": "dirt-path", "biome": "village", "color": "#8a7648" },
-    { "id": 7, "name": "planks", "biome": "village", "color": "#6e5d39" }
+    { "id": 7, "name": "planks", "biome": "village", "color": "#6e5d39" },
+    { "id": 8, "name": "shore", "biome": "plains", "color": "#c2b280" },
+    { "id": 9, "name": "pond", "biome": "water", "color": "#35708f" }
   ]
 }
