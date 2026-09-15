@@ -28,6 +28,16 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Ensure labels exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create auto:todo --color 0E8A16 --description "Queued for the self-build loop" || true
+          gh label create auto:doing --color FBCA04 --description "Claimed by a running self-build job" || true
+          gh label create auto:done --color 1D76DB --description "Built by the self-build loop" || true
+          gh label create design --color D4C5F9 --description "Needs the designer art pass" || true
+          gh label create idea --color E99695 --description "Brainstorm fodder" || true
+
       - name: Check rate-limit state
         id: gate
         run: |
