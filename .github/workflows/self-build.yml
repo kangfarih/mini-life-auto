@@ -26,13 +26,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Check rate-limit state
         id: gate
         run: |
           NOW=$(date +%s)
-          NEXT=$(node -e "try{console.log(require('./.opencode/ratelimit.json').next_allowed_at||0)}catch{console.log(0)}")
+          NEXT=$(python3 -c "import json;print(json.load(open('.opencode/ratelimit.json')).get('next_allowed_at',0))" 2>/dev/null)
+          NEXT=${NEXT:-0}
           echo "now=$NOW next=$NEXT"
           if [ "$NEXT" -gt "$NOW" ]; then
             WAIT=$((NEXT - NOW))
@@ -57,7 +58,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          NUM=$(gh issue list --label auto:todo --state open --limit 1 --json number --jq '.[0].number // empty')
+          OPEN=$(gh issue list --label auto:todo --state open --limit 20 --json number,labels \
+            --jq '[.[] | select((.labels | map(.name) | contains(["auto:doing"]) | not)) | .number]')
+          NUM=$(echo "$OPEN" | jq -r '.[0] // empty')
+          if [ -n "$NUM" ]; then
+            if gh pr list --state open --limit 20 --json body \
+              --jq "[.[].body // \"\" | tostring] | any(test(\"#$NUM\\\\b\"))" | grep -q true; then
+              echo "Issue #$NUM already has an open PR, skipping"
+              NUM=""
+            else
+              gh issue edit "$NUM" --add-label auto:doing
+            fi
+          fi
           echo "number=$NUM" >> "$GITHUB_OUTPUT"
           echo "Picked issue: $NUM"
 
@@ -107,11 +119,7 @@ jobs:
           if grep -qiE "rate.?limit|429|FreeUsageLimit|free.*(exceed|quota)|retry after" /tmp/opencode.log; then
             SECS=$(grep -oiE "retry after [0-9]+" /tmp/opencode.log | grep -oiE "[0-9]+" | head -1)
             if [ -z "$SECS" ]; then SECS=900; fi
-            # countdown for short waits so logs show it
-            REMAIN=$SECS
-            if [ "$REMAIN" -lt 900 ]; then
-              while [ "$REMAIN" -gt 0 ]; do echo "opencode rate limited, retry in ${REMAIN}s..."; STEP=10; [ "$REMAIN" -lt 10 ] && STEP=$REMAIN; sleep $STEP; REMAIN=$((REMAIN - STEP)); done
-            fi
+            # persist resume time FIRST so a timeout can't lose it
             NOW=$(date +%s)
             NEXT=$((NOW + SECS + 60))
             printf '{"next_allowed_at":%s,"last_error":"rate-limited"}' "$NEXT" > .opencode/ratelimit.json
@@ -120,6 +128,20 @@ jobs:
             git add .opencode/ratelimit.json
             git commit -m "[skip ci] rate limited, resume after $SECS s" || true
             git push || true
+            # rescue partial work onto a WIP branch so the next fresh checkout keeps it
+            if [ -n "$(git status --porcelain -- . ':(exclude).opencode/ratelimit.json')" ]; then
+              WIP="auto/issue-${{ steps.issue.outputs.number }}-$(date +%s)-wip"
+              git checkout -b "$WIP"
+              git add -A
+              git commit -m "wip: partial work on #${{ steps.issue.outputs.number }} (rate limited)" || true
+              git push -u origin "$WIP" || true
+              gh issue comment "${{ steps.issue.outputs.number }}" --body "Rate limited mid-task. Partial work saved on branch \`$WIP\`; resuming after ~$SECS s." || true
+            fi
+            # countdown for short waits so logs show it
+            REMAIN=$SECS
+            if [ "$REMAIN" -lt 900 ]; then
+              while [ "$REMAIN" -gt 0 ]; do echo "opencode rate limited, retry in ${REMAIN}s..."; STEP=10; [ "$REMAIN" -lt 10 ] && STEP=$REMAIN; sleep $STEP; REMAIN=$((REMAIN - STEP)); done
+            fi
             exit 0
           fi
           exit $CODE
@@ -137,8 +159,26 @@ jobs:
           git add -A
           git commit -m "auto: issue #${{ steps.issue.outputs.number }}"
           git push -u origin "$BR"
-          gh pr create --fill --label auto:done --title "auto: issue #${{ steps.issue.outputs.number }}" --body "Closes #${{ steps.issue.outputs.number }}"
+          gh pr create --label auto:done --title "auto: issue #${{ steps.issue.outputs.number }}" --body "Closes #${{ steps.issue.outputs.number }}"
+          gh issue edit "${{ steps.issue.outputs.number }}" --remove-label auto:doing || true
           gh issue comment "${{ steps.issue.outputs.number }}" --body "/oc done — opened PR for #${{ steps.issue.outputs.number }}"
+
+      - name: File failure issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "${{ steps.issue.outputs.number }}" ]; then
+            gh issue edit "${{ steps.issue.outputs.number }}" --remove-label auto:doing || true
+          fi
+          TITLE="fix: self-build run failed"
+          EXISTING=$(gh issue list --label auto:todo --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+          BODY="Run failed: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. Check logs, fix the build, keep the loop green."
+          if [ -z "$EXISTING" ]; then
+            gh issue create --label auto:todo --title "$TITLE" --body "$BODY"
+          else
+            gh issue comment "$EXISTING" --body "$BODY"
+          fi
 
   brainstorm:
     needs: build
@@ -157,7 +197,8 @@ jobs:
       - name: Check rate-limit state
         run: |
           NOW=$(date +%s)
-          NEXT=$(node -e "try{console.log(require('./.opencode/ratelimit.json').next_allowed_at||0)}catch{console.log(0)}")
+          NEXT=$(python3 -c "import json;print(json.load(open('.opencode/ratelimit.json')).get('next_allowed_at',0))" 2>/dev/null)
+          NEXT=${NEXT:-0}
           echo "now=$NOW next=$NEXT"
           if [ "$NEXT" -gt "$NOW" ]; then
             echo "Still rate limited. Exiting."

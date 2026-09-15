@@ -1,4 +1,4 @@
-import { integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { integer, jsonb, pgTable, serial, text, timestamp, unique } from "drizzle-orm/pg-core";
 
 export const worlds = pgTable("worlds", {
   id: serial("id").primaryKey(),
@@ -14,7 +14,7 @@ export const chunks = pgTable("chunks", {
   biome: text("biome").notNull().default("plains"),
   // 16x16 array of tileset indexes, e.g. { tiles: [[0,1,...], ...] }
   tiles: jsonb("tiles").notNull().default({ tiles: [] })
-});
+}, (t) => [unique("chunks_world_xy").on(t.worldId, t.x, t.y)]);
 
 export const entities = pgTable("entities", {
   id: serial("id").primaryKey(),

@@ -30,7 +30,7 @@ async function main() {
     y: 0,
     biome: "plains",
     tiles: blankTiles()
-  }).onConflictDoNothing();
+  }).onConflictDoNothing({ target: [chunks.worldId, chunks.x, chunks.y] });
 
   await db.insert(entities).values({
     worldId,
